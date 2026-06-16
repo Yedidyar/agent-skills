@@ -5,6 +5,8 @@ description: Walk through pull request review comments one at a time with the us
 
 # Review PR Comments Together
 
+Background and motivation: [README.md](README.md)
+
 ## Roles at a glance
 
 | Agent | Job | Never |
@@ -31,6 +33,144 @@ description: Walk through pull request review comments one at a time with the us
 **Phase 2 starts** when the user picks **Post to GitHub** in the triage-complete poll (or types an equivalent confirm).
 
 After each triage decision the orchestrator says **one line**: `"Planned for GitHub phase: …"` — no `gh` calls.
+
+---
+
+## Flow overview (mermaid)
+
+### Full session
+
+```mermaid
+flowchart TD
+    Start([User starts skill]) --> CacheCheck{Cache exists<br/>for this PR?}
+
+    CacheCheck -->|No| Index[Index subagent<br/>gh fetch → cache.jsonl]
+    CacheCheck -->|Yes| PollA{Poll A<br/>Resume / Refresh / Restart}
+
+    PollA -->|Refresh| Index
+    PollA -->|Restart| TriageStart
+    PollA -->|Resume| PhaseCheck{progress.md<br/>phase?}
+
+    Index --> InitProgress[Init / merge progress.md]
+    InitProgress --> TriageStart
+
+    PhaseCheck -->|triage| TriageStart[Phase 1 — Triage<br/>next = first i:. row]
+    PhaseCheck -->|github| GHStart[Phase 2 — GitHub<br/>gh_next = first s:. row]
+
+    TriageStart --> CommentLoop
+
+    subgraph Phase1["Phase 1 — Triage (no gh)"]
+        CommentLoop[Comment subagent<br/>analyze 1 comment + code]
+        CommentLoop --> PollB{Poll B<br/>Fix / Agree / Reply / …}
+        PollB -->|agree · praise · done| Record1[Patch progress<br/>plan ~reaction]
+        PollB -->|fix| Fix[Fix subagent<br/>patch + tests]
+        PollB -->|reply · disagree · defer| Reply[Reply subagent<br/>draft text]
+        Fix --> PollC{Poll C<br/>Approve / Revise / Undo}
+        PollC -->|revise| Fix
+        PollC -->|undo| PollB
+        PollC -->|approve| PollD{Poll D<br/>Resolve thread?}
+        PollD --> Record2[Patch i:x<br/>plan ~🚀 ~r ~x]
+        Reply --> PollE{Poll E<br/>Approve / Revise / Resolve?}
+        PollE -->|revise| Reply
+        PollE -->|approve| Record3[Patch i:n<br/>plan ~r draft in n]
+        Record1 --> MoreComments{next &lt; M+1?}
+        Record2 --> MoreComments
+        Record3 --> MoreComments
+        MoreComments -->|Yes| CommentLoop
+        MoreComments -->|No| PollF
+    end
+
+    PollF{Poll F<br/>Triage complete}
+    PollF -->|stop| EndStop([Session saved<br/>post later])
+    PollF -->|summary| PollF
+    PollF -->|github| GHStart
+
+    subgraph Phase2["Phase 2 — GitHub (gh api)"]
+        GHStart --> PollG{Poll G<br/>Post / Skip / Edit}
+        PollG -->|edit| PollB
+        PollG -->|skip| GHNext
+        PollG -->|post| GH[GitHub subagent<br/>react · reply · resolve]
+        GH --> GHNext{gh_next &lt; M+1?}
+        GHNext -->|Yes| PollG
+        GHNext -->|No| PollH
+    end
+
+    PollH{Poll H<br/>Push / Summary / Done}
+    PollH --> EndDone([Session complete])
+```
+
+### Per-comment triage (Phase 1 detail)
+
+```mermaid
+flowchart LR
+    subgraph Orchestrator
+        O1[Read 1 cache line]
+        O2[Spawn subagent]
+        O3[Show output]
+        O4[AskQuestion poll]
+        O5[Patch progress.md]
+    end
+
+    subgraph Subagents
+        C[Comment]
+        F[Fix]
+        R[Reply]
+    end
+
+    O1 --> O2 --> C
+    C --> O3 --> O4
+    O4 -->|fix| F
+    O4 -->|reply path| R
+    F --> O4
+    R --> O4
+    O4 -->|done| O5
+    O5 -->|next comment| O1
+```
+
+### Agent responsibilities
+
+```mermaid
+flowchart TB
+    User([User]) <-->|polls only| Orch[Orchestrator]
+
+    Orch -->|cache miss| Idx[Index]
+    Orch -->|per comment| Com[Comment]
+    Orch -->|on fix| Fix[Fix]
+    Orch -->|on reply| Rep[Reply]
+    Orch -->|phase 2| GH[GitHub]
+
+    Idx -->|writes| Cache[(cache.jsonl)]
+    Orch -->|reads/writes| Prog[(progress.md)]
+
+    Idx -.->|gh graphql| API[(GitHub API)]
+    GH -.->|gh react/reply/resolve| API
+
+    Com -.->|read 1 line| Cache
+    Fix -.->|read code| Repo[(Repo files)]
+    Rep -.->|read code| Repo
+    Com -.->|read code| Repo
+```
+
+### Progress row lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: row created i:.
+
+    Pending --> Fixed: fix approved i:x
+    Pending --> NoChange: agree/praise/reply i:n
+
+    Fixed --> Planned: gh gets ~🚀 ~r ~x
+    NoChange --> Planned: gh gets ~+1 or ~r
+
+    Planned --> Posted: GitHub subagent s:x
+    Posted --> [*]
+
+    note right of Planned
+        Phase 1 only — ~ prefix
+        means planned, not posted
+    end note
+```
 
 ---
 

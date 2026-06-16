@@ -22,15 +22,16 @@ Skills are installed with the [skills CLI](https://skills.sh) (`npx skills`).
 
 ### Install a single skill
 
+Skills in this repo live under `skills/`. Use `@` or `--skill` — **not** a path suffix (`owner/repo/skill-name` looks for a skill folder at the repo root and will fail here).
+
 ```bash
-npx skills add Yedidyar/agent-skills/<skill-name>
+npx skills add Yedidyar/agent-skills@<skill-name>
 ```
 
-Equivalent forms:
+Equivalent form:
 
 ```bash
 npx skills add Yedidyar/agent-skills --skill <skill-name>
-npx skills add Yedidyar/agent-skills@<skill-name>
 ```
 
 ### Discover available skills
@@ -80,3 +81,4 @@ Keep this table updated in every skill PR.
 | Skill | Description |
 |-------|-------------|
 | `_template` | Starter template for authoring new skills (not for production use) |
+| [`review-pr-comments-together`](skills/review-pr-comments-together/README.md) | Interactive PR review walkthrough — explains each comment, you choose via polls; thin orchestrator + subagents + local cache for resume |
